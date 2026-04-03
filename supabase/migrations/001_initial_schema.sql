@@ -5,14 +5,28 @@
 -- ============================================================
 
 -- ── Enums ────────────────────────────────────────────────────
-create type user_role       as enum ('owner', 'coach', 'client');
-create type movement_focus  as enum ('upper', 'lower', 'full_body', 'cardio', 'rest');
-create type exercise_category as enum ('warmup', 'main', 'accessory');
-create type session_type    as enum ('sgpt', 'team_training');
-create type workout_status  as enum ('booked', 'in_progress', 'completed', 'cancelled');
+do $$ begin
+  create type user_role as enum ('owner', 'coach', 'client');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type movement_focus as enum ('upper', 'lower', 'full_body', 'cardio', 'rest');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type exercise_category as enum ('warmup', 'main', 'accessory');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type session_type as enum ('sgpt', 'team_training');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type workout_status as enum ('booked', 'in_progress', 'completed', 'cancelled');
+exception when duplicate_object then null; end $$;
 
 -- ── Gyms ─────────────────────────────────────────────────────
-create table gyms (
+create table if not exists gyms (
   id         uuid primary key default gen_random_uuid(),
   name       text not null,
   slug       text not null unique,
@@ -21,7 +35,7 @@ create table gyms (
 
 -- ── Users ────────────────────────────────────────────────────
 -- id mirrors auth.users.id so we can join without a lookup
-create table users (
+create table if not exists users (
   id         uuid primary key references auth.users(id) on delete cascade,
   gym_id     uuid not null references gyms(id) on delete cascade,
   full_name  text not null,
@@ -31,11 +45,11 @@ create table users (
   created_at timestamptz not null default now()
 );
 
-create index users_gym_id_idx  on users(gym_id);
-create index users_role_idx    on users(role);
+create index if not exists users_gym_id_idx  on users(gym_id);
+create index if not exists users_role_idx    on users(role);
 
 -- ── Blocks ───────────────────────────────────────────────────
-create table blocks (
+create table if not exists blocks (
   id          uuid primary key default gen_random_uuid(),
   gym_id      uuid not null references gyms(id) on delete cascade,
   name        text not null,
@@ -44,11 +58,11 @@ create table blocks (
   created_at  timestamptz not null default now()
 );
 
-create index blocks_gym_id_idx on blocks(gym_id);
+create index if not exists blocks_gym_id_idx on blocks(gym_id);
 
 -- ── Block Days ───────────────────────────────────────────────
 -- Represents a recurring day within a block (e.g. "Monday — Upper Body")
-create table block_days (
+create table if not exists block_days (
   id              uuid primary key default gen_random_uuid(),
   block_id        uuid not null references blocks(id) on delete cascade,
   day_of_week     int  not null check (day_of_week between 0 and 5), -- 0=Mon 5=Sat
@@ -57,11 +71,11 @@ create table block_days (
   unique (block_id, day_of_week)
 );
 
-create index block_days_block_id_idx on block_days(block_id);
+create index if not exists block_days_block_id_idx on block_days(block_id);
 
 -- ── Block Sessions ───────────────────────────────────────────
 -- One row per (week, day) — the canonical workout prescription
-create table block_sessions (
+create table if not exists block_sessions (
   id            uuid primary key default gen_random_uuid(),
   block_id      uuid not null references blocks(id) on delete cascade,
   block_day_id  uuid not null references block_days(id) on delete cascade,
@@ -69,11 +83,11 @@ create table block_sessions (
   unique (block_id, block_day_id, week_number)
 );
 
-create index block_sessions_block_id_idx    on block_sessions(block_id);
-create index block_sessions_block_day_idx   on block_sessions(block_day_id);
+create index if not exists block_sessions_block_id_idx    on block_sessions(block_id);
+create index if not exists block_sessions_block_day_idx   on block_sessions(block_day_id);
 
 -- ── Exercises ────────────────────────────────────────────────
-create table exercises (
+create table if not exists exercises (
   id                uuid primary key default gen_random_uuid(),
   block_session_id  uuid not null references block_sessions(id) on delete cascade,
   category          exercise_category not null,
@@ -85,12 +99,12 @@ create table exercises (
   order_index       int  not null default 0
 );
 
-create index exercises_block_session_id_idx on exercises(block_session_id);
-create index exercises_category_idx         on exercises(category);
+create index if not exists exercises_block_session_id_idx on exercises(block_session_id);
+create index if not exists exercises_category_idx         on exercises(category);
 
 -- ── Session Slots ────────────────────────────────────────────
 -- A real-world schedulled class at a specific datetime
-create table session_slots (
+create table if not exists session_slots (
   id                uuid primary key default gen_random_uuid(),
   gym_id            uuid not null references gyms(id) on delete cascade,
   block_session_id  uuid references block_sessions(id) on delete set null,
@@ -101,12 +115,12 @@ create table session_slots (
   created_at        timestamptz not null default now()
 );
 
-create index session_slots_gym_id_idx         on session_slots(gym_id);
-create index session_slots_starts_at_idx      on session_slots(starts_at);
-create index session_slots_block_session_idx  on session_slots(block_session_id);
+create index if not exists session_slots_gym_id_idx         on session_slots(gym_id);
+create index if not exists session_slots_starts_at_idx      on session_slots(starts_at);
+create index if not exists session_slots_block_session_idx  on session_slots(block_session_id);
 
 -- ── Session Slot Coaches (many-to-many) ──────────────────────
-create table session_slot_coaches (
+create table if not exists session_slot_coaches (
   session_slot_id  uuid not null references session_slots(id) on delete cascade,
   coach_id         uuid not null references users(id) on delete cascade,
   primary key (session_slot_id, coach_id)
@@ -114,7 +128,7 @@ create table session_slot_coaches (
 
 -- ── Workout Logs ─────────────────────────────────────────────
 -- One per client per session slot
-create table workout_logs (
+create table if not exists workout_logs (
   id               uuid primary key default gen_random_uuid(),
   session_slot_id  uuid not null references session_slots(id) on delete cascade,
   client_id        uuid not null references users(id) on delete cascade,
@@ -125,11 +139,11 @@ create table workout_logs (
   unique (session_slot_id, client_id)
 );
 
-create index workout_logs_session_slot_id_idx on workout_logs(session_slot_id);
-create index workout_logs_client_id_idx       on workout_logs(client_id);
+create index if not exists workout_logs_session_slot_id_idx on workout_logs(session_slot_id);
+create index if not exists workout_logs_client_id_idx       on workout_logs(client_id);
 
 -- ── Set Logs ─────────────────────────────────────────────────
-create table set_logs (
+create table if not exists set_logs (
   id               uuid primary key default gen_random_uuid(),
   workout_log_id   uuid not null references workout_logs(id) on delete cascade,
   exercise_id      uuid not null references exercises(id) on delete cascade,
@@ -141,9 +155,9 @@ create table set_logs (
   unique (workout_log_id, exercise_id, set_number)
 );
 
-create index set_logs_workout_log_id_idx on set_logs(workout_log_id);
-create index set_logs_exercise_id_idx    on set_logs(exercise_id);
-create index set_logs_client_exercise_idx
+create index if not exists set_logs_workout_log_id_idx on set_logs(workout_log_id);
+create index if not exists set_logs_exercise_id_idx    on set_logs(exercise_id);
+create index if not exists set_logs_client_exercise_idx
   on set_logs(exercise_id, logged_at desc);
 
 -- ============================================================
@@ -196,6 +210,7 @@ begin
 end;
 $$;
 
+drop trigger if exists trg_check_pb on set_logs;
 create trigger trg_check_pb
 before insert or update on set_logs
 for each row execute function check_pb();
@@ -233,35 +248,42 @@ as $$
 $$;
 
 -- ── gyms: all members of the gym can read ────────────────────
+drop policy if exists "gym members can view their gym" on gyms;
 create policy "gym members can view their gym"
   on gyms for select
   using (id = my_gym_id());
 
 -- ── users ────────────────────────────────────────────────────
+drop policy if exists "users can view members of their gym" on users;
 create policy "users can view members of their gym"
   on users for select
   using (gym_id = my_gym_id());
 
+drop policy if exists "users can update their own profile" on users;
 create policy "users can update their own profile"
   on users for update
   using (id = auth.uid());
 
 -- ── blocks ───────────────────────────────────────────────────
+drop policy if exists "gym members can view blocks" on blocks;
 create policy "gym members can view blocks"
   on blocks for select
   using (gym_id = my_gym_id());
 
+drop policy if exists "coaches and owners can manage blocks" on blocks;
 create policy "coaches and owners can manage blocks"
   on blocks for all
   using (gym_id = my_gym_id() and my_role() in ('owner', 'coach'));
 
 -- ── block_days ───────────────────────────────────────────────
+drop policy if exists "gym members can view block days" on block_days;
 create policy "gym members can view block days"
   on block_days for select
   using (
     block_id in (select id from blocks where gym_id = my_gym_id())
   );
 
+drop policy if exists "coaches and owners can manage block days" on block_days;
 create policy "coaches and owners can manage block days"
   on block_days for all
   using (
@@ -270,12 +292,14 @@ create policy "coaches and owners can manage block days"
   );
 
 -- ── block_sessions ───────────────────────────────────────────
+drop policy if exists "gym members can view block sessions" on block_sessions;
 create policy "gym members can view block sessions"
   on block_sessions for select
   using (
     block_id in (select id from blocks where gym_id = my_gym_id())
   );
 
+drop policy if exists "coaches and owners can manage block sessions" on block_sessions;
 create policy "coaches and owners can manage block sessions"
   on block_sessions for all
   using (
@@ -284,6 +308,7 @@ create policy "coaches and owners can manage block sessions"
   );
 
 -- ── exercises ────────────────────────────────────────────────
+drop policy if exists "gym members can view exercises" on exercises;
 create policy "gym members can view exercises"
   on exercises for select
   using (
@@ -294,6 +319,7 @@ create policy "gym members can view exercises"
     )
   );
 
+drop policy if exists "coaches and owners can manage exercises" on exercises;
 create policy "coaches and owners can manage exercises"
   on exercises for all
   using (
@@ -306,15 +332,18 @@ create policy "coaches and owners can manage exercises"
   );
 
 -- ── session_slots ────────────────────────────────────────────
+drop policy if exists "gym members can view session slots" on session_slots;
 create policy "gym members can view session slots"
   on session_slots for select
   using (gym_id = my_gym_id());
 
+drop policy if exists "coaches and owners can manage session slots" on session_slots;
 create policy "coaches and owners can manage session slots"
   on session_slots for all
   using (gym_id = my_gym_id() and my_role() in ('owner', 'coach'));
 
 -- ── session_slot_coaches ─────────────────────────────────────
+drop policy if exists "gym members can view slot coaches" on session_slot_coaches;
 create policy "gym members can view slot coaches"
   on session_slot_coaches for select
   using (
@@ -323,6 +352,7 @@ create policy "gym members can view slot coaches"
     )
   );
 
+drop policy if exists "owners can manage slot coaches" on session_slot_coaches;
 create policy "owners can manage slot coaches"
   on session_slot_coaches for all
   using (
@@ -333,10 +363,12 @@ create policy "owners can manage slot coaches"
   );
 
 -- ── workout_logs ─────────────────────────────────────────────
+drop policy if exists "clients can view their own workout logs" on workout_logs;
 create policy "clients can view their own workout logs"
   on workout_logs for select
   using (client_id = auth.uid());
 
+drop policy if exists "coaches and owners can view all gym workout logs" on workout_logs;
 create policy "coaches and owners can view all gym workout logs"
   on workout_logs for select
   using (
@@ -346,15 +378,18 @@ create policy "coaches and owners can view all gym workout logs"
     )
   );
 
+drop policy if exists "clients can create their own workout logs" on workout_logs;
 create policy "clients can create their own workout logs"
   on workout_logs for insert
   with check (client_id = auth.uid());
 
+drop policy if exists "clients can update their own workout logs" on workout_logs;
 create policy "clients can update their own workout logs"
   on workout_logs for update
   using (client_id = auth.uid());
 
 -- ── set_logs ─────────────────────────────────────────────────
+drop policy if exists "clients can manage their own set logs" on set_logs;
 create policy "clients can manage their own set logs"
   on set_logs for all
   using (
@@ -363,6 +398,7 @@ create policy "clients can manage their own set logs"
     )
   );
 
+drop policy if exists "coaches and owners can view set logs in their gym" on set_logs;
 create policy "coaches and owners can view set logs in their gym"
   on set_logs for select
   using (
