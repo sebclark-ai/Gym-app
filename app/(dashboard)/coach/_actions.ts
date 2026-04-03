@@ -66,7 +66,11 @@ export async function addBlockDay(formData: FormData) {
     .select('id')
     .single()
 
-  if (dayError || !day) throw new Error(dayError?.message ?? 'Failed to create block day')
+  if (dayError || !day) {
+    // Postgres unique violation — day already exists in this block
+    if (dayError?.code === '23505') throw new Error('That day is already configured in this block.')
+    throw new Error(dayError?.message ?? 'Failed to create block day')
+  }
 
   // 2. Look up the block's week_count
   const { data: block, error: blockError } = await supabase
